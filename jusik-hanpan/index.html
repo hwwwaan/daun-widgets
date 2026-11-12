@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>주식 한 판</title>
+  <style>
+    /* 노션 색에 맞춘 기본 색. 한국 증시 관례대로 오르면 빨강, 내리면 파랑 */
+    :root {
+      --text: #37352f;
+      --muted: #787774;
+      --line: #e9e9e7;
+      --soft: #f7f6f3;
+      --accent: #2383e2;
+      --up: #d44c47;
+      --down: #337ea9;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 12px;
+      font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+      font-size: 14px;
+      color: var(--text);
+      background: #ffffff;
+    }
+    .widget { max-width: 480px; margin: 0 auto; }
+    header { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 8px; }
+    h1 { margin: 0; font-size: 18px; }
+    .today { color: var(--muted); font-size: 13px; }
+    button { font-family: inherit; cursor: pointer; }
+    .up { color: var(--up); }
+    .down { color: var(--down); }
+    .muted { color: var(--muted); }
+    .notice { margin: 8px 0 0; font-size: 12px; color: var(--up); }
+    .notice:empty { display: none; }
+    .empty { padding: 16px 8px; text-align: center; color: var(--muted); font-size: 13px; }
+
+    /* ---------- 탭 ---------- */
+    .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 10px; }
+    .tabs button {
+      padding: 8px 10px; font-size: 14px; color: var(--muted);
+      background: none; border: none; border-bottom: 2px solid transparent; margin-bottom: -1px;
+    }
+    .tabs button[aria-selected="true"] { color: var(--text); font-weight: 700; border-bottom-color: var(--text); }
+    .panel[hidden] { display: none; }
+
+    /* ---------- 작은 선택 버튼 묶음 (전체/담은 지수, 기간) ---------- */
+    .chips { display: flex; gap: 4px; flex-wrap: wrap; }
+    .chips button {
+      padding: 4px 10px; font-size: 13px; color: var(--muted);
+      background: var(--soft); border: 1px solid transparent; border-radius: 999px;
+    }
+    .chips button[aria-pressed="true"] { color: var(--text); background: #ffffff; border-color: var(--text); font-weight: 600; }
+
+    /* ---------- 큰 그래프 ---------- */
+    .chart-card { padding: 12px; background: var(--soft); border-radius: 10px; margin: 8px 0 10px; }
+    .chart-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+    .chart-name { font-weight: 700; font-size: 15px; }
+    .chart-price { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .chart-change { font-size: 13px; font-variant-numeric: tabular-nums; }
+    .chart-box { position: relative; margin-top: 8px; }
+    .chart-box svg { display: block; width: 100%; height: 120px; }
+    .chart-scale { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); margin-top: 2px; }
+    .chart-minmax { position: absolute; right: 0; top: 0; bottom: 0; display: flex; flex-direction: column; justify-content: space-between; font-size: 11px; color: var(--muted); pointer-events: none; }
+    .chart-minmax span { padding: 0 3px; background: rgba(247, 246, 243, 0.85); border-radius: 3px; }
+
+    /* ---------- 지수 목록 ---------- */
+    .rows { list-style: none; margin: 0; padding: 0; }
+    .row {
+      display: grid; grid-template-columns: 28px 1fr 72px 92px; align-items: center; gap: 6px;
+      padding: 8px 4px; border-bottom: 1px solid var(--line); cursor: pointer; border-radius: 6px;
+    }
+    .row.selected { background: var(--soft); }
+    .star { width: 28px; height: 28px; font-size: 18px; line-height: 1; color: #c9c7c1; background: none; border: none; padding: 0; }
+    .star[aria-pressed="true"] { color: #dfab01; }
+    .row-name { font-weight: 600; }
+    .row-region { font-size: 12px; color: var(--muted); }
+    .row svg { width: 72px; height: 26px; display: block; }
+    .row-num { text-align: right; font-variant-numeric: tabular-nums; }
+    .row-num .pct { font-size: 12px; }
+    .source { margin-top: 8px; font-size: 11px; color: var(--muted); }
+
+    /* ---------- 할 일·일지 입력 ---------- */
+    .form-row { display: flex; gap: 6px; }
+    input[type="text"], input[type="date"], select, textarea {
+      font-family: inherit; font-size: 14px; color: var(--text);
+      padding: 8px; border: 1px solid #d3d1cb; border-radius: 8px; background: #ffffff;
+    }
+    input[type="text"] { flex: 1; min-width: 0; }
+    textarea { width: 100%; min-height: 72px; resize: vertical; margin-top: 6px; line-height: 1.5; }
+    .primary { padding: 8px 14px; font-size: 14px; font-weight: 600; color: #ffffff; background: var(--accent); border: none; border-radius: 8px; }
+    .list { list-style: none; margin: 10px 0 0; padding: 0; }
+    .todo { display: flex; align-items: center; gap: 8px; padding: 8px 2px; border-bottom: 1px solid var(--line); }
+    .todo input { width: 18px; height: 18px; margin: 0; }
+    .todo span { flex: 1; word-break: break-all; }
+    .todo.done span { color: var(--muted); text-decoration: line-through; }
+    .remove { color: var(--muted); background: none; border: none; font-size: 16px; padding: 2px 6px; }
+    .count { margin-top: 6px; font-size: 12px; color: var(--muted); }
+    .entry { padding: 10px 2px; border-bottom: 1px solid var(--line); }
+    .entry-head { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+    .badge { padding: 1px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+    .badge.study { color: #0f7b6c; background: #ddedea; }
+    .badge.journal { color: #9f6b53; background: #f4eeee; }
+    .entry-head .remove { margin-left: auto; }
+    .entry-text { margin-top: 4px; white-space: pre-wrap; word-break: break-all; line-height: 1.5; }
+  </style>
+</head>
+<body>
+  <div class="widget">
+    <header>
+      <h1>주식 한 판</h1>
+      <span id="today" class="today"></span>
+    </header>
+
+    <div class="tabs" role="tablist">
+      <button type="button" role="tab" data-tab="index">지수</button>
+      <button type="button" role="tab" data-tab="todo">오늘 할 일</button>
+      <button type="button" role="tab" data-tab="journal">공부·일지</button>
+    </div>
+
+    <!-- ① 지수 탭: 주요 지수 그래프 + 내가 담은 지수 보기 -->
+    <section id="panel-index" class="panel" role="tabpanel">
+      <div class="chips" id="viewChips">
+        <button type="button" data-view="all">전체</button>
+        <button type="button" data-view="watch">내가 담은 지수</button>
+      </div>
+      <div id="chartCard" class="chart-card" hidden>
+        <div class="chart-head">
+          <div>
+            <div id="chartName" class="chart-name"></div>
+            <div id="chartPrice" class="chart-price"></div>
+            <div id="chartChange" class="chart-change"></div>
+          </div>
+          <div class="chips" id="periodChips">
+            <button type="button" data-months="1">1개월</button>
+            <button type="button" data-months="3">3개월</button>
+            <button type="button" data-months="6">6개월</button>
+          </div>
+        </div>
+        <div class="chart-box">
+          <svg id="chart" viewBox="0 0 300 120" preserveAspectRatio="none" aria-hidden="true"></svg>
+          <div class="chart-minmax"><span id="chartMax"></span><span id="chartMin"></span></div>
+        </div>
+        <div class="chart-scale"><span id="chartStart"></span><span id="chartPeriodChange"></span><span id="chartEnd"></span></div>
+      </div>
+      <ul id="indexRows" class="rows"></ul>
+      <div id="indexEmpty" class="empty" hidden></div>
+      <div id="source" class="source"></div>
+    </section>
+
+    <!-- ② 오늘 할 일 탭 -->
+    <section id="panel-todo" class="panel" role="tabpanel" hidden>
+      <form id="todoForm" class="form-row">
+        <input id="todoInput" type="text" maxlength="80" placeholder="예: 3장 복습하기, 실적 발표 일정 보기" aria-label="할 일">
+        <button type="submit" class="primary">추가</button>
+      </form>
+      <ul id="todoList" class="list"></ul>
+      <div id="todoCount" class="count"></div>
+    </section>
+
+    <!-- ③ 공부·일지 탭 -->
+    <section id="panel-journal" class="panel" role="tabpanel" hidden>
+      <form id="journalForm">
+        <div class="form-row">
+          <input id="journalDate" type="date" aria-label="날짜">
+          <select id="journalKind" aria-label="종류">
+            <option value="study">공부</option>
+            <option value="journal">투자 일지</option>
+          </select>
+          <button type="submit" class="primary">저장</button>
+        </div>
+        <textarea id="journalText" maxlength="2000" placeholder="오늘 배운 것, 왜 샀고 왜 팔았는지, 다음에 확인할 것" aria-label="내용"></textarea>
+      </form>
+      <ul id="journalList" class="list"></ul>
+    </section>
+
+    <p id="notice" class="notice" aria-live="polite"></p>
+  </div>
+
+  <script>
+    // =====================================================================
+    // 저장소: 노션 임베드처럼 localStorage 가 막힌 곳에서도 화면은 돌도록 감싼다
+    // =====================================================================
+    const memoryStore = {}; // 저장이 막혔을 때 쓰는 임시 보관함 (새로고침하면 사라짐)
+    let canSave = true;
+    try {
+      localStorage.setItem('jusik:test', '1');
+      localStorage.removeItem('jusik:test');
+    } catch (error) {
+      canSave = false;
+    }
+
+    function showNotice(text) {
+      document.getElementById('notice').textContent = text;
+    }
+    if (!canSave) showNotice('이 화면에서는 기록을 저장할 수 없어요. 새로고침하면 사라집니다.');
+
+    // JSON 으로 읽고 쓰는 도우미. 실패하면 기본값을 돌려준다
+    function load(key, fallback) {
+      try {
+        const raw = canSave ? localStorage.getItem(key) : memoryStore[key];
+        return raw == null ? fallback : JSON.parse(raw);
+      } catch (error) {
+        return fallback;
+      }
+    }
+    function save(key, value) {
+      const raw = JSON.stringify(value);
+      if (!canSave) { memoryStore[key] = raw; return; }
+      try {
+        localStorage.setItem(key, raw);
+      } catch (error) {
+        memoryStore[key] = raw;
+        showNotice('저장 공간에 쓰지 못했어요. 새로고침하면 사라집니다.');
+      }
+    }
+
+    // =====================================================================
+    // 날짜 도우미 (기기의 현지 날짜 기준)
+    // =====================================================================
+    function dateKey(date) {
+      return date.getFullYear() + '-' + String(date.getMonth() + 1).padStart(2, '0') + '-' + String(date.getDate()).padStart(2, '0');
+    }
+    function shortDate(key) { // "2026-11-12" → "11/12"
+      const parts = key.split('-');
+      return Number(parts[1]) + '/' + Number(parts[2]);
+    }
+    const now = new Date();
+    const todayKey = dateKey(now);
+    document.getElementById('today').textContent =
+      (now.getMonth() + 1) + '/' + now.getDate() + ' (' + '일월화수목금토'[now.getDay()] + ')';
+
+    // =====================================================================
+    // 탭 전환 (마지막으로 본 탭을 기억한다)
+    // =====================================================================
+    const tabButtons = document.querySelectorAll('.tabs button');
+    function showTab(name) {
+      tabButtons.forEach(function (button) {
+        const on = button.dataset.tab === name;
+        button.setAttribute('aria-selected', on);
+        document.getElementById('panel-' + button.dataset.tab).hidden = !on;
+      });
+      save('jusik:tab', name);
+    }
+    tabButtons.forEach(function (button) {
+      button.addEventListener('click', function () { showTab(button.dataset.tab); });
+    });
+    showTab(load('jusik:tab', 'index'));
+
+    // =====================================================================
+    // ① 지수: 주요 지수 그래프 + 내가 담은 지수
+    // =====================================================================
+    let indices = [];                                   // data/indices.json 에서 읽은 지수들
+    let watch = load('jusik:watch', []);                // 내가 담은 지수 id 목록
+    let view = load('jusik:view', 'all');               // 'all' 또는 'watch'
+    let months = load('jusik:months', 3);               // 그래프 기간 (개월)
+    let selectedId = load('jusik:selected', 'KOSPI');   // 큰 그래프에 띄운 지수
+
+    function formatNumber(value) {
+      return value.toLocaleString('ko-KR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+    function signed(value, digits) {
+      return (value > 0 ? '+' : '') + value.toFixed(digits);
+    }
+
+    // 선택한 기간에 해당하는 날짜·종가만 잘라 낸다
+    function sliceByMonths(item, monthCount) {
+      const last = item.dates[item.dates.length - 1].split('-').map(Number);
+      const cutoff = dateKey(new Date(last[0], last[1] - 1 - monthCount, last[2]));
+      const start = item.dates.findIndex(function (d) { return d >= cutoff; });
+      return { dates: item.dates.slice(start), closes: item.closes.slice(start) };
+    }
+
+    // 전날 대비 변화 (데이터의 마지막 두 종가로 계산)
+    function dailyChange(item) {
+      const n = item.closes.length;
+      const last = item.closes[n - 1];
+      const prev = item.closes[n - 2];
+      return { last: last, diff: last - prev, pct: (last - prev) / prev * 100 };
+    }
+
+    // 값 목록을 SVG 선 경로로 바꾼다. 세로는 기간 안의 최저~최고에 맞춘다
+    function linePoints(values, width, height, pad) {
+      const min = Math.min.apply(null, values);
+      const max = Math.max.apply(null, values);
+      const span = max - min || 1;
+      return values.map(function (v, i) {
+        const x = values.length === 1 ? width / 2 : (i / (values.length - 1)) * width;
+        const y = pad + (1 - (v - min) / span) * (height - pad * 2);
+        return [x, y];
+      });
+    }
+    function drawLine(svg, values, width, height, color, withArea) {
+      const pts = linePoints(values, width, height, 4);
+      const d = pts.map(function (p, i) { return (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1); }).join(' ');
+      let html = '';
+      if (withArea) {
+        html += '<path d="' + d + ' L' + width + ' ' + height + ' L0 ' + height + ' Z" fill="' + color + '" fill-opacity="0.08"/>';
+      }
+      html += '<path d="' + d + '" fill="none" stroke="' + color + '" stroke-width="1.6" vector-effect="non-scaling-stroke" stroke-linejoin="round"/>';
+      svg.innerHTML = html;
+    }
+    function trendColor(first, last) {
+      return last >= first ? 'var(--up)' : 'var(--down)';
+    }
+
+    // 지금 보기(전체/담은 지수)에 맞는 지수 목록
+    function visibleIndices() {
+      return view === 'watch'
+        ? indices.filter(function (item) { return watch.includes(item.id); })
+        : indices;
+    }
+
+    function setPressed(groupId, attr, value) {
+      document.querySelectorAll('#' + groupId + ' button').forEach(function (button) {
+        button.setAttribute('aria-pressed', String(button.dataset[attr]) === String(value));
+      });
+    }
+
+    // 큰 그래프 그리기
+    function renderChart(item) {
+      const card = document.getElementById('chartCard');
+      if (!item) { card.hidden = true; return; }
+      card.hidden = false;
+      const part = sliceByMonths(item, months);
+      const change = dailyChange(item);
+      const first = part.closes[0];
+      const last = part.closes[part.closes.length - 1];
+      const color = trendColor(first, last);
+
+      document.getElementById('chartName').textContent = item.name + ' · ' + item.region;
+      document.getElementById('chartPrice').textContent = formatNumber(change.last);
+      const changeBox = document.getElementById('chartChange');
+      changeBox.textContent = (change.diff >= 0 ? '▲ ' : '▼ ') + formatNumber(Math.abs(change.diff)) + ' (' + signed(change.pct, 2) + '%) 전날 대비';
+      changeBox.className = 'chart-change ' + (change.diff >= 0 ? 'up' : 'down');
+
+      drawLine(document.getElementById('chart'), part.closes, 300, 120, color, true);
+      document.getElementById('chartMax').textContent = formatNumber(Math.max.apply(null, part.closes));
+      document.getElementById('chartMin').textContent = formatNumber(Math.min.apply(null, part.closes));
+      document.getElementById('chartStart').textContent = shortDate(part.dates[0]);
+      document.getElementById('chartEnd').textContent = shortDate(part.dates[part.dates.length - 1]);
+      const periodPct = (last - first) / first * 100;
+      const periodBox = document.getElementById('chartPeriodChange');
+      periodBox.textContent = months + '개월 ' + signed(periodPct, 1) + '%';
+      periodBox.className = periodPct >= 0 ? 'up' : 'down';
+      setPressed('periodChips', 'months', months);
+    }
+
+    // 지수 목록 그리기
+    function renderIndex() {
+      setPressed('viewChips', 'view', view);
+      document.querySelector('#viewChips [data-view="watch"]').textContent = '내가 담은 지수 ' + watch.length;
+
+      const list = visibleIndices();
+      const rows = document.getElementById('indexRows');
+      const empty = document.getElementById('indexEmpty');
+      rows.innerHTML = '';
+      empty.hidden = list.length > 0;
+      if (list.length === 0) {
+        empty.textContent = view === 'watch'
+          ? '아직 담은 지수가 없어요. 「전체」에서 ☆ 를 눌러 담아 보세요.'
+          : '지수 데이터가 없어요.';
+      }
+
+      // 큰 그래프에 띄울 지수: 지금 목록에 없으면 목록의 첫 번째로
+      if (!list.some(function (item) { return item.id === selectedId; }) && list.length) {
+        selectedId = list[0].id;
+      }
+      renderChart(list.find(function (item) { return item.id === selectedId; }));
+
+      list.forEach(function (item) {
+        const change = dailyChange(item);
+        const part = sliceByMonths(item, months);
+        const li = document.createElement('li');
+        li.className = 'row' + (item.id === selectedId ? ' selected' : '');
+
+        // ☆ 담기 버튼
+        const star = document.createElement('button');
+        star.type = 'button';
+        star.className = 'star';
+        const on = watch.includes(item.id);
+        star.textContent = on ? '★' : '☆';
+        star.setAttribute('aria-pressed', on);
+        star.setAttribute('aria-label', item.name + (on ? ' 담기 해제' : ' 담기'));
+        star.addEventListener('click', function (event) {
+          event.stopPropagation(); // 줄 클릭(그래프 선택)과 겹치지 않게
+          watch = on ? watch.filter(function (id) { return id !== item.id; }) : watch.concat(item.id);
+          save('jusik:watch', watch);
+          renderIndex();
+        });
+
+        const name = document.createElement('div');
+        name.innerHTML = '<div class="row-name"></div><div class="row-region"></div>';
+        name.children[0].textContent = item.name;
+        name.children[1].textContent = item.region + ' · ' + shortDate(item.dates[item.dates.length - 1]);
+
+        const spark = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        spark.setAttribute('viewBox', '0 0 72 26');
+        spark.setAttribute('preserveAspectRatio', 'none');
+        drawLine(spark, part.closes, 72, 26, trendColor(part.closes[0], part.closes[part.closes.length - 1]), false);
+
+        const num = document.createElement('div');
+        num.className = 'row-num';
+        num.innerHTML = '<div></div><div class="pct"></div>';
+        num.children[0].textContent = formatNumber(change.last);
+        num.children[1].textContent = signed(change.pct, 2) + '%';
+        num.children[1].className = 'pct ' + (change.diff >= 0 ? 'up' : 'down');
+
+        li.append(star, name, spark, num);
+        li.addEventListener('click', function () {
+          selectedId = item.id;
+          save('jusik:selected', selectedId);
+          renderIndex();
+        });
+        rows.appendChild(li);
+      });
+    }
+
+    document.querySelectorAll('#viewChips button').forEach(function (button) {
+      button.addEventListener('click', function () {
+        view = button.dataset.view;
+        save('jusik:view', view);
+        renderIndex();
+      });
+    });
+    document.querySelectorAll('#periodChips button').forEach(function (button) {
+      button.addEventListener('click', function () {
+        months = Number(button.dataset.months);
+        save('jusik:months', months);
+        renderIndex();
+      });
+    });
+
+    // 같은 저장소에 있는 지수 파일을 읽는다 (tools/fetch_indices.py 가 만든다)
+    fetch('data/indices.json', { cache: 'no-cache' })
+      .then(function (res) {
+        if (!res.ok) throw new Error(res.status);
+        return res.json();
+      })
+      .then(function (data) {
+        indices = data.indices;
+        const at = data.updated_at.slice(0, 16).replace('T', ' ');
+        document.getElementById('source').textContent = '받은 시각 ' + at + ' · 종가 기준 · 출처 ' + data.source;
+        renderIndex();
+      })
+      .catch(function () {
+        document.getElementById('indexEmpty').hidden = false;
+        document.getElementById('indexEmpty').textContent = '지수 데이터를 불러오지 못했어요. 잠시 뒤 다시 열어 주세요.';
+      });
+
+    // =====================================================================
+    // ② 오늘 할 일 (날짜마다 따로 저장해서 다음 날엔 새 목록)
+    // =====================================================================
+    const todoKey = 'jusik:todo:' + todayKey;
+    let todos = load(todoKey, []);
+
+    function renderTodos() {
+      const list = document.getElementById('todoList');
+      list.innerHTML = '';
+      todos.forEach(function (todo, index) {
+        const li = document.createElement('li');
+        li.className = 'todo' + (todo.done ? ' done' : '');
+        const box = document.createElement('input');
+        box.type = 'checkbox';
+        box.checked = todo.done;
+        box.setAttribute('aria-label', todo.text + ' 완료');
+        box.addEventListener('change', function () {
+          todos[index].done = box.checked;
+          save(todoKey, todos);
+          renderTodos();
+        });
+        const text = document.createElement('span');
+        text.textContent = todo.text;
+        const remove = document.createElement('button');
+        remove.type = 'button';
+        remove.className = 'remove';
+        remove.textContent = '×';
+        remove.setAttribute('aria-label', todo.text + ' 지우기');
+        remove.addEventListener('click', function () {
+          todos.splice(index, 1);
+          save(todoKey, todos);
+          renderTodos();
+        });
+        li.append(box, text, remove);
+        list.appendChild(li);
+      });
+      const left = todos.filter(function (t) { return !t.done; }).length;
+      document.getElementById('todoCount').textContent = todos.length
+        ? '남은 일 ' + left + '개 / 전체 ' + todos.length + '개'
+        : '오늘 할 일을 적어 보세요.';
+    }
+
+    document.getElementById('todoForm').addEventListener('submit', function (event) {
+      event.preventDefault(); // 폼 제출로 페이지가 새로고침되지 않게
+      const input = document.getElementById('todoInput');
+      const text = input.value.trim();
+      if (!text) return;
+      todos.push({ text: text, done: false });
+      save(todoKey, todos);
+      input.value = '';
+      renderTodos();
+    });
+    renderTodos();
+
+    // =====================================================================
+    // ③ 공부·일지
+    // =====================================================================
+    let entries = load('jusik:journal', []);
+    const KIND_LABEL = { study: '공부', journal: '투자 일지' };
+    document.getElementById('journalDate').value = todayKey;
+
+    function renderJournal() {
+      const list = document.getElementById('journalList');
+      list.innerHTML = '';
+      // 날짜가 늦은 것부터, 같은 날이면 나중에 쓴 것부터
+      const sorted = entries.slice().sort(function (a, b) {
+        return a.date === b.date ? b.createdAt - a.createdAt : (a.date < b.date ? 1 : -1);
+      });
+      if (sorted.length === 0) {
+        list.innerHTML = '<li class="empty">아직 쓴 기록이 없어요.</li>';
+        return;
+      }
+      sorted.forEach(function (entry) {
+        const li = document.createElement('li');
+        li.className = 'entry';
+        const head = document.createElement('div');
+        head.className = 'entry-head';
+        const badge = document.createElement('span');
+        badge.className = 'badge ' + entry.kind;
+        badge.textContent = KIND_LABEL[entry.kind] || entry.kind;
+        const date = document.createElement('span');
+        date.textContent = entry.date;
+        const remove = document.createElement('button');
+        remove.type = 'button';
+        remove.className = 'remove';
+        remove.textContent = '×';
+        remove.setAttribute('aria-label', entry.date + ' 기록 지우기');
+        remove.addEventListener('click', function () {
+          entries = entries.filter(function (e) { return e.createdAt !== entry.createdAt; });
+          save('jusik:journal', entries);
+          renderJournal();
+        });
+        head.append(badge, date, remove);
+        const text = document.createElement('div');
+        text.className = 'entry-text';
+        text.textContent = entry.text;
+        li.append(head, text);
+        list.appendChild(li);
+      });
+    }
+
+    document.getElementById('journalForm').addEventListener('submit', function (event) {
+      event.preventDefault();
+      const textBox = document.getElementById('journalText');
+      const text = textBox.value.trim();
+      if (!text) { textBox.focus(); return; }
+      entries.push({
+        date: document.getElementById('journalDate').value || todayKey,
+        kind: document.getElementById('journalKind').value,
+        text: text,
+        createdAt: Date.now()
+      });
+      save('jusik:journal', entries);
+      textBox.value = '';
+      renderJournal();
+    });
+    renderJournal();
+  </script>
+</body>
+</html>
