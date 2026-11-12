@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>카운트다운 타이머</title>
+  <style>
+    /* 노션의 작은 임베드 화면에서도 시간과 버튼이 잘 보이도록 가운데에 모은다 */
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 16px;
+      font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+      background: #ffffff;
+      color: #37352f;
+    }
+    .widget {
+      max-width: 320px;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      text-align: center;
+    }
+    h1 { margin: 0; font-size: 18px; }
+    /* 남은 시간은 가장 크게 */
+    .time {
+      font-size: 56px;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums; /* 숫자 폭을 같게 해서 글자가 흔들리지 않게 */
+      letter-spacing: 2px;
+    }
+    .input-row {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      font-size: 15px;
+    }
+    input {
+      width: 80px;
+      padding: 8px;
+      font-size: 18px;
+      text-align: center;
+      border: 1px solid #d3d1cb;
+      border-radius: 8px;
+    }
+    .buttons {
+      display: flex;
+      gap: 8px;
+    }
+    button {
+      flex: 1;
+      padding: 12px;
+      font-size: 16px;
+      font-weight: 600;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+    #startButton { color: #ffffff; background: #2383e2; }
+    #resetButton { color: #37352f; background: #ebeae6; }
+    /* 실행 중에 막아 둔 버튼과 입력창은 흐리게 */
+    button:disabled, input:disabled { opacity: 0.45; cursor: not-allowed; }
+    .message { min-height: 22px; font-size: 15px; }
+    .message.error { color: #d44c47; }
+    .message.done { color: #0f7b6c; font-size: 22px; font-weight: 700; }
+  </style>
+</head>
+<body>
+  <div class="widget">
+    <h1>카운트다운 타이머</h1>
+    <div id="time" class="time">00:00</div>
+    <div class="input-row">
+      <input id="minutes" type="number" min="1" max="99" step="1" inputmode="numeric" placeholder="분">
+      <label for="minutes">분</label>
+    </div>
+    <div class="buttons">
+      <button id="startButton" type="button">시작</button>
+      <button id="resetButton" type="button">초기화</button>
+    </div>
+    <div id="message" class="message" aria-live="polite"></div>
+  </div>
+
+  <script>
+    // 화면 요소 찾아 두기
+    const timeText = document.getElementById('time');
+    const minutesInput = document.getElementById('minutes');
+    const startButton = document.getElementById('startButton');
+    const resetButton = document.getElementById('resetButton');
+    const messageBox = document.getElementById('message');
+
+    let timerId = null;   // 돌고 있는 타이머의 번호 (멈춰 있으면 null)
+    let endTime = 0;      // 타이머가 끝나는 시각 (밀리초)
+
+    // 남은 초를 MM:SS 모양의 글자로 바꾼다 (한 자리 숫자 앞에는 0을 붙인다)
+    function formatTime(totalSeconds) {
+      const minutes = Math.floor(totalSeconds / 60);
+      const seconds = totalSeconds % 60;
+      return String(minutes).padStart(2, '0') + ':' + String(seconds).padStart(2, '0');
+    }
+
+    // 안내 글을 바꾸는 작은 도우미 함수
+    function showMessage(text, type) {
+      messageBox.textContent = text;
+      messageBox.className = 'message' + (type ? ' ' + type : '');
+    }
+
+    // 실행 중일 때는 시작 버튼과 입력창을 막고, 멈추면 다시 연다
+    function setRunning(running) {
+      startButton.disabled = running;
+      minutesInput.disabled = running;
+    }
+
+    // 입력값이 1~99 사이의 정수인지 확인한다. 맞으면 숫자를, 아니면 null 을 돌려준다
+    function readMinutes() {
+      const raw = minutesInput.value.trim();
+      // 숫자만으로 이루어졌는지 먼저 본다 (1.5, -3, 1e1 같은 값은 여기서 걸러진다)
+      if (!/^\d+$/.test(raw)) return null;
+      const value = Number(raw);
+      if (value < 1 || value > 99) return null;
+      return value;
+    }
+
+    // 화면의 남은 시간을 새로 그린다
+    function tick() {
+      // 끝나는 시각에서 지금 시각을 빼서 남은 시간을 계산한다
+      // (setInterval 이 조금씩 늦어져도 시간이 밀리지 않는 방법)
+      const remainingMs = endTime - Date.now();
+      const remainingSeconds = Math.max(0, Math.ceil(remainingMs / 1000));
+      timeText.textContent = formatTime(remainingSeconds);
+
+      // 0이 되면 멈추고 완료 메시지를 보여 준다
+      if (remainingSeconds === 0) {
+        stopTimer();
+        showMessage('완료!', 'done');
+      }
+    }
+
+    // 돌고 있는 타이머를 멈춘다
+    function stopTimer() {
+      if (timerId !== null) {
+        clearInterval(timerId);
+        timerId = null;
+      }
+      setRunning(false);
+    }
+
+    // "시작" 버튼
+    function start() {
+      // 이미 돌고 있으면 아무것도 하지 않는다 (연타 방지)
+      if (timerId !== null) return;
+
+      const minutes = readMinutes();
+      if (minutes === null) {
+        showMessage('1부터 99까지의 정수(분)를 입력해 주세요.', 'error');
+        return;
+      }
+
+      showMessage('');
+      setRunning(true);
+      endTime = Date.now() + minutes * 60 * 1000;
+      tick(); // 누르자마자 시작 시간을 바로 보여 준다
+      timerId = setInterval(tick, 250); // 0.25초마다 확인해서 화면을 갱신한다
+    }
+
+    // "초기화" 버튼: 멈추고 00:00 으로 돌아가 다시 입력할 수 있게 한다
+    function reset() {
+      stopTimer();
+      timeText.textContent = '00:00';
+      showMessage('');
+    }
+
+    startButton.addEventListener('click', start);
+    resetButton.addEventListener('click', reset);
+  </script>
+</body>
+</html>

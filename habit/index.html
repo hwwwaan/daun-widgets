@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>해빗 트래커</title>
+  <style>
+    /* 노션의 작은 임베드 화면에서도 체크하기 편하도록 칸을 넉넉하게 */
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 16px;
+      font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+      background: #ffffff;
+      color: #37352f;
+    }
+    .widget {
+      max-width: 420px;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    h1 { margin: 0; font-size: 18px; }
+    label.name-label { font-size: 14px; color: #787774; }
+    #habitName {
+      width: 100%;
+      padding: 10px;
+      font-size: 16px;
+      border: 1px solid #d3d1cb;
+      border-radius: 8px;
+    }
+    /* 월~일 7칸을 한 줄에 나란히 */
+    .week {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 6px;
+    }
+    .day {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      padding: 8px 0;
+      background: #f7f6f3;
+      border-radius: 8px;
+      font-size: 13px;
+      cursor: pointer;
+      user-select: none;
+    }
+    .day .weekday { font-weight: 700; }
+    .day .date { color: #787774; font-size: 12px; }
+    .day input { width: 22px; height: 22px; margin: 2px 0 0; cursor: pointer; }
+    .notice { font-size: 13px; color: #d44c47; }
+    .notice:empty { display: none; }
+  </style>
+</head>
+<body>
+  <div class="widget">
+    <h1>해빗 트래커</h1>
+    <label class="name-label" for="habitName">습관 이름</label>
+    <input id="habitName" type="text" placeholder="예: 물 2L 마시기" maxlength="40">
+    <div id="week" class="week"></div>
+    <div id="notice" class="notice" aria-live="polite"></div>
+  </div>
+
+  <script>
+    // 저장할 때 쓰는 이름표(키). 다른 위젯과 겹치지 않게 앞에 위젯 이름을 붙인다
+    const NAME_KEY = 'daun-habit:name';
+    const WEEK_KEY_PREFIX = 'daun-habit:week:'; // 뒤에 그 주 월요일 날짜가 붙는다
+
+    const nameInput = document.getElementById('habitName');
+    const weekBox = document.getElementById('week');
+    const noticeBox = document.getElementById('notice');
+
+    const WEEKDAYS = ['월', '화', '수', '목', '금', '토', '일'];
+
+    // ---------- 저장소(localStorage) 다루기 ----------
+    // 노션 임베드처럼 저장이 막힌 환경에서는 localStorage 를 쓰는 순간 오류가 날 수 있다.
+    // 그래서 처음에 한 번 시험해 보고, 안 되면 저장 없이 화면만 동작하게 한다.
+    let storage = null;
+    try {
+      const testKey = 'daun-habit:test';
+      window.localStorage.setItem(testKey, '1');
+      window.localStorage.removeItem(testKey);
+      storage = window.localStorage;
+    } catch (error) {
+      storage = null;
+    }
+
+    function showStorageWarning() {
+      noticeBox.textContent = '이 화면에서는 기록을 저장할 수 없어요. 체크는 되지만 새로고침하면 사라집니다.';
+    }
+
+    // 값 읽기: 저장소가 없거나 오류가 나면 null
+    function load(key) {
+      if (!storage) return null;
+      try {
+        return storage.getItem(key);
+      } catch (error) {
+        return null;
+      }
+    }
+
+    // 값 쓰기: 실패하면 안내를 띄운다
+    function save(key, value) {
+      if (!storage) {
+        showStorageWarning();
+        return;
+      }
+      try {
+        storage.setItem(key, value);
+      } catch (error) {
+        showStorageWarning();
+      }
+    }
+
+    // ---------- 날짜 계산 ----------
+    // 기기의 현지 날짜를 YYYY-MM-DD 글자로 바꾼다
+    // (toISOString 은 세계 표준시 기준이라 한국 새벽에 하루가 밀릴 수 있어서 쓰지 않는다)
+    function toDateKey(date) {
+      const y = date.getFullYear();
+      const m = String(date.getMonth() + 1).padStart(2, '0');
+      const d = String(date.getDate()).padStart(2, '0');
+      return y + '-' + m + '-' + d;
+    }
+
+    // 오늘이 속한 주의 월요일을 구한다
+    function getMonday(today) {
+      // getDay(): 일요일 0, 월요일 1 ... 토요일 6
+      // 월요일에서 며칠 지났는지로 바꾸면: 월 0, 화 1 ... 일 6
+      const daysSinceMonday = (today.getDay() + 6) % 7;
+      return new Date(today.getFullYear(), today.getMonth(), today.getDate() - daysSinceMonday);
+    }
+
+    const monday = getMonday(new Date());
+    // 이번 주 체크 기록을 담는 키. 주마다 월요일 날짜가 달라서 다른 주와 섞이지 않는다
+    const weekKey = WEEK_KEY_PREFIX + toDateKey(monday);
+
+    // ---------- 이번 주 체크 상태 ----------
+    // [월, 화, 수, 목, 금, 토, 일] 순서의 참/거짓 7개
+    function loadChecks() {
+      const saved = load(weekKey);
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed) && parsed.length === 7) {
+            return parsed.map(Boolean);
+          }
+        } catch (error) {
+          // 저장된 값이 깨져 있으면 새로 시작한다
+        }
+      }
+      return [false, false, false, false, false, false, false];
+    }
+
+    const checks = loadChecks();
+
+    // ---------- 화면 그리기 ----------
+    // 월요일부터 일요일까지 날짜와 체크박스 7개를 만든다
+    function renderWeek() {
+      weekBox.innerHTML = '';
+      for (let i = 0; i < 7; i++) {
+        const day = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + i);
+
+        // label 로 감싸면 칸 어디를 눌러도 체크박스가 눌린다
+        const cell = document.createElement('label');
+        cell.className = 'day';
+
+        const weekday = document.createElement('span');
+        weekday.className = 'weekday';
+        weekday.textContent = WEEKDAYS[i];
+
+        const date = document.createElement('span');
+        date.className = 'date';
+        date.textContent = (day.getMonth() + 1) + '/' + day.getDate();
+
+        const box = document.createElement('input');
+        box.type = 'checkbox';
+        box.checked = checks[i];
+        box.setAttribute('aria-label', WEEKDAYS[i] + '요일 ' + date.textContent + ' 완료');
+
+        // 체크를 켜거나 끄면 바로 저장한다
+        box.addEventListener('change', function () {
+          checks[i] = box.checked;
+          save(weekKey, JSON.stringify(checks));
+        });
+
+        cell.appendChild(weekday);
+        cell.appendChild(date);
+        cell.appendChild(box);
+        weekBox.appendChild(cell);
+      }
+    }
+
+    // ---------- 습관 이름 ----------
+    nameInput.value = load(NAME_KEY) || '';
+    // 글자를 칠 때마다 저장한다
+    nameInput.addEventListener('input', function () {
+      save(NAME_KEY, nameInput.value);
+    });
+
+    renderWeek();
+    if (!storage) showStorageWarning();
+  </script>
+</body>
+</html>
