@@ -86,6 +86,16 @@ def main():
     if not out["indices"]:
         sys.exit("지수를 하나도 못 받았다:\n" + "\n".join(failed))
 
+    # 휴장일처럼 숫자가 그대로면 파일을 다시 쓰지 않는다 (자동 실행이 빈 커밋을 쌓지 않게)
+    if OUT.exists():
+        try:
+            before = json.loads(OUT.read_text(encoding="utf-8"))
+            if before.get("indices") == out["indices"]:
+                print("변화 없음: 파일을 그대로 둔다")
+                return
+        except ValueError:
+            pass
+
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text(json.dumps(out, ensure_ascii=False, separators=(",", ":")) + "\n", encoding="utf-8")
     print(f"저장: {OUT} ({len(out['indices'])}개)")
