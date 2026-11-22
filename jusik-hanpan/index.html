@@ -114,12 +114,12 @@
     </header>
 
     <div class="tabs" role="tablist">
-      <button type="button" role="tab" data-tab="index">지수</button>
+      <button type="button" role="tab" data-tab="index">지수·환율</button>
       <button type="button" role="tab" data-tab="todo">오늘 할 일</button>
       <button type="button" role="tab" data-tab="journal">공부·일지</button>
     </div>
 
-    <!-- ① 지수 탭: 주요 지수 그래프 + 내가 담은 지수 보기 -->
+    <!-- ① 지수·환율 탭: 주요 지수와 원/달러 환율 그래프 + 내가 담은 지수 보기 -->
     <section id="panel-index" class="panel" role="tabpanel">
       <div class="chips" id="viewChips">
         <button type="button" data-view="all">전체</button>
@@ -249,9 +249,9 @@
     showTab(load('jusik:tab', 'index'));
 
     // =====================================================================
-    // ① 지수: 주요 지수 그래프 + 내가 담은 지수
+    // ① 지수·환율: 주요 지수와 원/달러 환율 그래프 + 내가 담은 지수
     // =====================================================================
-    let indices = [];                                   // data/indices.json 에서 읽은 지수들
+    let indices = [];                                   // data/indices.json 에서 읽은 지수와 환율
     let watch = load('jusik:watch', []);                // 내가 담은 지수 id 목록
     let view = load('jusik:view', 'all');               // 'all' 또는 'watch'
     let months = load('jusik:months', 3);               // 그래프 기간 (개월)
@@ -360,7 +360,7 @@
       if (list.length === 0) {
         empty.textContent = view === 'watch'
           ? '아직 담은 지수가 없어요. 「전체」에서 ☆ 를 눌러 담아 보세요.'
-          : '지수 데이터가 없어요.';
+          : '지수·환율 데이터가 없어요.';
       }
 
       // 큰 그래프에 띄울 지수: 지금 목록에 없으면 목록의 첫 번째로
@@ -446,7 +446,7 @@
       })
       .catch(function () {
         document.getElementById('indexEmpty').hidden = false;
-        document.getElementById('indexEmpty').textContent = '지수 데이터를 불러오지 못했어요. 잠시 뒤 다시 열어 주세요.';
+        document.getElementById('indexEmpty').textContent = '지수·환율 데이터를 불러오지 못했어요. 잠시 뒤 다시 열어 주세요.';
       });
 
     // =====================================================================
