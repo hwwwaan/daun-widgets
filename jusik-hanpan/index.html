@@ -56,15 +56,17 @@
 
     /* ---------- 큰 그래프 ---------- */
     .chart-card { padding: 12px; background: var(--soft); border-radius: 10px; margin: 8px 0 10px; }
-    .chart-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+    /* 폭이 모자라면 기간 버튼 묶음이 통째로 아랫줄로 내려간다 (버튼끼리는 한 줄을 지킨다) */
+    .chart-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; flex-wrap: wrap; }
+    .chart-head .chips { flex-wrap: nowrap; }
     .chart-name { font-weight: 700; font-size: 15px; }
     .chart-price { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
-    .chart-change { font-size: 13px; font-variant-numeric: tabular-nums; }
+    .chart-change { font-size: 13px; font-variant-numeric: tabular-nums; white-space: nowrap; }
     .chart-box { position: relative; margin-top: 8px; }
     .chart-box svg { display: block; width: 100%; height: 120px; }
     .chart-scale { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); margin-top: 2px; }
-    .chart-minmax { position: absolute; right: 0; top: 0; bottom: 0; display: flex; flex-direction: column; justify-content: space-between; font-size: 11px; color: var(--muted); pointer-events: none; }
-    .chart-minmax span { padding: 0 3px; background: rgba(247, 246, 243, 0.85); border-radius: 3px; }
+    /* 최고·최저는 그래프 위에 겹치면 마지막 값이 가려져서 그래프 아래에 따로 적는다 */
+    .chart-minmax { margin-top: 4px; font-size: 11px; color: var(--muted); text-align: center; font-variant-numeric: tabular-nums; }
 
     /* ---------- 지수 목록 ---------- */
     .rows { list-style: none; margin: 0; padding: 0; }
@@ -73,6 +75,7 @@
       padding: 8px 4px; border-bottom: 1px solid var(--line); cursor: pointer; border-radius: 6px;
     }
     .row.selected { background: var(--soft); }
+    .row:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
     .star { width: 28px; height: 28px; font-size: 18px; line-height: 1; color: #c9c7c1; background: none; border: none; padding: 0; }
     .star[aria-pressed="true"] { color: #dfab01; }
     .row-name { font-weight: 600; }
@@ -81,6 +84,7 @@
     .row-num { text-align: right; font-variant-numeric: tabular-nums; }
     .row-num .pct { font-size: 12px; }
     .source { margin-top: 8px; font-size: 11px; color: var(--muted); }
+    .stale { display: block; margin-top: 2px; color: var(--up); }
 
     /* ---------- 할 일·일지 입력 ---------- */
     .form-row { display: flex; gap: 6px; }
@@ -97,6 +101,7 @@
     .todo span { flex: 1; word-break: break-all; }
     .todo.done span { color: var(--muted); text-decoration: line-through; }
     .remove { color: var(--muted); background: none; border: none; font-size: 16px; padding: 2px 6px; }
+    .remove.asking { font-size: 12px; font-weight: 600; color: var(--up); }
     .count { margin-top: 6px; font-size: 12px; color: var(--muted); }
     .entry { padding: 10px 2px; border-bottom: 1px solid var(--line); }
     .entry-head { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
@@ -141,9 +146,9 @@
         </div>
         <div class="chart-box">
           <svg id="chart" viewBox="0 0 300 120" preserveAspectRatio="none" aria-hidden="true"></svg>
-          <div class="chart-minmax"><span id="chartMax"></span><span id="chartMin"></span></div>
         </div>
         <div class="chart-scale"><span id="chartStart"></span><span id="chartPeriodChange"></span><span id="chartEnd"></span></div>
+        <div class="chart-minmax">기간 최고 <span id="chartMax"></span> · 최저 <span id="chartMin"></span></div>
       </div>
       <ul id="indexRows" class="rows"></ul>
       <div id="indexEmpty" class="empty" hidden></div>
@@ -235,10 +240,14 @@
       const parts = key.split('-');
       return Number(parts[1]) + '/' + Number(parts[2]);
     }
-    const now = new Date();
-    const todayKey = dateKey(now);
-    document.getElementById('today').textContent =
-      (now.getMonth() + 1) + '/' + now.getDate() + ' (' + '일월화수목금토'[now.getDay()] + ')';
+    let todayKey = '';
+    function showToday() {
+      const now = new Date();
+      todayKey = dateKey(now);
+      document.getElementById('today').textContent =
+        (now.getMonth() + 1) + '/' + now.getDate() + ' (' + '일월화수목금토'[now.getDay()] + ')';
+    }
+    showToday();
 
     // =====================================================================
     // 탭 전환 (마지막으로 본 탭을 기억한다)
@@ -364,6 +373,8 @@
       setPressed('periodChips', 'months', months);
     }
 
+    let keyboardChoice = false; // 키보드로 줄을 골랐을 때만 초점을 되돌린다
+
     // 지수 목록 그리기
     function renderIndex() {
       setPressed('viewChips', 'view', view);
@@ -425,10 +436,26 @@
         num.children[1].className = 'pct ' + (change.diff >= 0 ? 'up' : 'down');
 
         li.append(star, name, spark, num);
-        li.addEventListener('click', function () {
+        function choose() {
           selectedId = item.id;
           save('jusik:selected', selectedId);
           renderIndex();
+          // 다시 그리면서 줄이 새로 만들어지므로, 고른 줄에 초점을 돌려 놓는다
+          const again = document.querySelector('#indexRows .row.selected');
+          if (again && keyboardChoice) again.focus();
+          keyboardChoice = false;
+        }
+        li.tabIndex = 0;
+        li.setAttribute('role', 'button');
+        li.setAttribute('aria-label', item.name + ' 그래프 보기');
+        li.addEventListener('click', choose);
+        li.addEventListener('keydown', function (event) {
+          if (event.target !== li) return; // ☆ 버튼에서 누른 키는 그 버튼이 처리한다
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            keyboardChoice = true;
+            choose();
+          }
         });
         rows.appendChild(li);
       });
@@ -472,8 +499,16 @@
         .then(function (data) {
           indices = usableIndices(data && data.indices);
           const at = typeof data.updated_at === 'string' ? data.updated_at.slice(0, 16).replace('T', ' ') : '알 수 없음';
-          document.getElementById('source').textContent =
-            '받은 시각 ' + at + ' · 종가 기준 · 출처 ' + (data.source || '알 수 없음');
+          const source = document.getElementById('source');
+          source.textContent = '받은 시각 ' + at + ' · 종가 기준 · 출처 ' + (data.source || '알 수 없음');
+          // 자동으로 갱신되지 않는 자료라서, 받은 지 사흘이 넘으면 눈에 띄게 알린다
+          const days = Math.floor((Date.now() - Date.parse(data.updated_at)) / 86400000);
+          if (days >= 3) {
+            const stale = document.createElement('span');
+            stale.className = 'stale';
+            stale.textContent = '받은 지 ' + days + '일 지난 자료예요. 지금 값과 다를 수 있어요.';
+            source.appendChild(stale);
+          }
           renderIndex();
         }, function () {
           // 인터넷이 끊겼거나 파일을 못 받았을 때만 여기로 온다
@@ -492,7 +527,7 @@
     // =====================================================================
     // ② 오늘 할 일 (날짜마다 따로 저장해서 다음 날엔 새 목록)
     // =====================================================================
-    const todoKey = 'jusik:todo:' + todayKey;
+    let todoKey = 'jusik:todo:' + todayKey;
     // 글자가 있는 항목만 남기고, 완료 표시는 참/거짓으로 맞춘다
     function cleanTodos(list) {
       return asArray(list)
@@ -572,9 +607,11 @@
     function renderJournal() {
       const list = document.getElementById('journalList');
       list.innerHTML = '';
-      // 날짜가 늦은 것부터, 같은 날이면 나중에 쓴 것부터
+      // 날짜가 늦은 것부터, 같은 날이면 나중에 쓴 것부터 (쓴 시각까지 같으면 뒤에 저장된 것부터)
       const sorted = entries.slice().sort(function (a, b) {
-        return a.date === b.date ? b.createdAt - a.createdAt : (a.date < b.date ? 1 : -1);
+        if (a.date !== b.date) return a.date < b.date ? 1 : -1;
+        if (a.createdAt !== b.createdAt) return b.createdAt - a.createdAt;
+        return entries.indexOf(b) - entries.indexOf(a);
       });
       if (sorted.length === 0) {
         list.innerHTML = '<li class="empty">아직 쓴 기록이 없어요.</li>';
@@ -595,7 +632,20 @@
         remove.className = 'remove';
         remove.textContent = '×';
         remove.setAttribute('aria-label', (entry.date || '날짜 없는') + ' 기록 지우기');
+        // 긴 글이 한 번에 사라지지 않게 두 번 눌러야 지워진다. 3초 안에 다시 안 누르면 원래대로
+        let asking = null;
         remove.addEventListener('click', function () {
+          if (!asking) {
+            remove.textContent = '지울까요?';
+            remove.classList.add('asking');
+            asking = setTimeout(function () {
+              asking = null;
+              remove.textContent = '×';
+              remove.classList.remove('asking');
+            }, 3000);
+            return;
+          }
+          clearTimeout(asking);
           entries = entries.filter(function (e) { return e !== entry; }); // 누른 그 기록 하나만
           save('jusik:journal', entries);
           renderJournal();
@@ -625,6 +675,24 @@
       renderJournal();
     });
     renderJournal();
+
+    // =====================================================================
+    // 노션 페이지에 붙여 두면 며칠씩 열려 있으니, 날짜가 바뀌었는지 가끔 확인한다
+    // =====================================================================
+    function refreshDay() {
+      if (dateKey(new Date()) === todayKey) return;
+      const dateBox = document.getElementById('journalDate');
+      const wasToday = dateBox.value === todayKey; // 일지 날짜를 직접 바꿔 둔 게 아니면 오늘로 따라간다
+      showToday();
+      todoKey = 'jusik:todo:' + todayKey;
+      todos = cleanTodos(load(todoKey, []));
+      renderTodos();
+      if (wasToday) dateBox.value = todayKey;
+    }
+    setInterval(refreshDay, 60000);
+    document.addEventListener('visibilitychange', function () {
+      if (!document.hidden) refreshDay();
+    });
   </script>
 </body>
 </html>
