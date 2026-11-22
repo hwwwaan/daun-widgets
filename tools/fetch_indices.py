@@ -40,7 +40,7 @@ def ssl_context():
     try:
         import certifi
         return ssl.create_default_context(cafile=certifi.where())
-    except ImportError:
+    except (ImportError, AttributeError):  # 예약 실행처럼 환경이 다르면 엉뚱한 certifi 가 잡힐 때가 있다
         pass
     if os.path.exists("/etc/ssl/cert.pem"):
         return ssl.create_default_context(cafile="/etc/ssl/cert.pem")
